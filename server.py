@@ -7,7 +7,7 @@ from typing import List, Optional
 from pymongo import MongoClient
 from bson import ObjectId
 import os
-import jwt
+from jose import jwt
 import hashlib
 import uuid
 from datetime import datetime, timedelta
