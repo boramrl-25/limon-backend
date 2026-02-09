@@ -240,24 +240,46 @@ async def login(data: AdminLogin):
 async def get_me(user = Depends(verify_token)):
     return {"user": user}
 
+class ChangePasswordRequest(BaseModel):
+    old_password: str
+    new_password: str
+
+class ResetPasswordRequest(BaseModel):
+    username: str
+
 @app.post("/api/auth/change-password")
 async def change_password(
-    old_password: str = Form(...),
-    new_password: str = Form(...),
+    data: ChangePasswordRequest,
     user = Depends(verify_token)
 ):
     admin = db.admins.find_one({
         "_id": ObjectId(user["user_id"]),
-        "password": hash_password(old_password)
+        "password": hash_password(data.old_password)
     })
     if not admin:
-        raise HTTPException(status_code=400, detail="Invalid old password")
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+    
+    if len(data.new_password) < 6:
+        raise HTTPException(status_code=400, detail="New password must be at least 6 characters")
     
     db.admins.update_one(
         {"_id": ObjectId(user["user_id"])},
-        {"$set": {"password": hash_password(new_password)}}
+        {"$set": {"password": hash_password(data.new_password)}}
     )
     return {"message": "Password changed successfully"}
+
+@app.post("/api/auth/reset-password")
+async def reset_password(data: ResetPasswordRequest):
+    """Reset password to default (istanbul1453) - requires username verification"""
+    admin = db.admins.find_one({"username": data.username})
+    if not admin:
+        raise HTTPException(status_code=400, detail="Username not found")
+    
+    db.admins.update_one(
+        {"username": data.username},
+        {"$set": {"password": hash_password("istanbul1453")}}
+    )
+    return {"message": "Password reset to istanbul1453"}
 
 # Categories Routes
 @app.get("/api/categories")
@@ -328,6 +350,9 @@ async def create_menu_item(data: MenuItemCreate, user = Depends(verify_token)):
     item["created_at"] = datetime.utcnow()
     result = db.menu_items.insert_one(item)
     item["id"] = str(result.inserted_id)
+    # Remove MongoDB _id to avoid serialization issues
+    if "_id" in item:
+        del item["_id"]
     # Update data version for sync
     db.settings.update_one({}, {"$inc": {"data_version": 1}}, upsert=True)
     return {"item": item}
@@ -449,16 +474,18 @@ async def get_cloudinary_signature(
         "folder": folder
     }
     
+    api_secret = os.environ.get("CLOUDINARY_API_SECRET", "ywA1-Qcm5J9m8Ss71YJKpegjiNU")
+    
     signature = cloudinary.utils.api_sign_request(
         params,
-        os.environ.get("CLOUDINARY_API_SECRET")
+        api_secret
     )
     
     return {
         "signature": signature,
         "timestamp": timestamp,
-        "cloud_name": os.environ.get("CLOUDINARY_CLOUD_NAME"),
-        "api_key": os.environ.get("CLOUDINARY_API_KEY"),
+        "cloud_name": os.environ.get("CLOUDINARY_CLOUD_NAME", "dqnmsgj4v"),
+        "api_key": os.environ.get("CLOUDINARY_API_KEY", "927472732524642"),
         "folder": folder,
         "resource_type": resource_type
     }
@@ -471,39 +498,51 @@ async def cloudinary_upload(
     folder: str = Form("limon-restaurant"),
     user = Depends(verify_token)
 ):
+    import base64
+    import traceback
     try:
-        # Configure Cloudinary at runtime
+        # Configure Cloudinary from environment variables
+        cloud_name = os.environ.get("CLOUDINARY_CLOUD_NAME", "dqnmsgj4v")
+        api_key = os.environ.get("CLOUDINARY_API_KEY", "927472732524642")
+        api_secret = os.environ.get("CLOUDINARY_API_SECRET", "ywA1-Qcm5J9m8Ss71YJKpegjiNU")
+        
+        print(f"Cloudinary config: cloud_name={cloud_name}, api_key={api_key[:8]}...")
+        
         cloudinary.config(
-            cloud_name=os.environ.get("CLOUDINARY_CLOUD_NAME"),
-            api_key=os.environ.get("CLOUDINARY_API_KEY"),
-            api_secret=os.environ.get("CLOUDINARY_API_SECRET"),
-            secure=True
+            cloud_name=cloud_name,
+            api_key=api_key,
+            api_secret=api_secret
         )
         
         # Read file content
         contents = await file.read()
+        print(f"File received: {file.filename}, size: {len(contents)} bytes, content_type: {file.content_type}")
+        
+        # Convert to base64 data URI
+        content_type = file.content_type or "image/jpeg"
+        base64_data = base64.b64encode(contents).decode('utf-8')
+        data_uri = f"data:{content_type};base64,{base64_data}"
         
         # Upload to Cloudinary
-        if resource_type == "video":
-            result = cloudinary.uploader.upload(
-                contents,
-                resource_type="video",
-                folder=folder
-            )
-        else:
-            result = cloudinary.uploader.upload(
-                contents,
-                resource_type="image",
-                folder=folder
-            )
+        print(f"Uploading to Cloudinary folder: {folder}")
+        result = cloudinary.uploader.upload(
+            data_uri,
+            resource_type="auto",
+            folder=folder
+        )
+        
+        print(f"Upload successful: {result.get('secure_url')}")
         
         return {
             "url": result["secure_url"],
             "public_id": result["public_id"],
-            "resource_type": resource_type
+            "resource_type": result.get("resource_type", resource_type)
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+        error_msg = str(e)
+        print(f"Upload error: {error_msg}")
+        print(f"Traceback: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"Upload failed: {error_msg}")
 
 # Delete from Cloudinary
 @app.delete("/api/cloudinary/delete")
