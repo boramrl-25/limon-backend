@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.staticfiles import StaticFiles
@@ -7,11 +7,15 @@ from typing import List, Optional
 from pymongo import MongoClient
 from bson import ObjectId
 import os
-from jose import jwt
+import jwt
 import hashlib
 import uuid
 from datetime import datetime, timedelta
 import shutil
+import time
+import cloudinary
+import cloudinary.uploader
+import cloudinary.utils
 
 app = FastAPI(title="The Limon Restaurant API")
 
@@ -34,11 +38,19 @@ db = client[DB_NAME]
 JWT_SECRET = os.environ.get("JWT_SECRET", "limon-restaurant-secret-key-2024")
 JWT_ALGORITHM = "HS256"
 
+# Cloudinary Configuration
+cloudinary.config(
+    cloud_name=os.environ.get("CLOUDINARY_CLOUD_NAME"),
+    api_key=os.environ.get("CLOUDINARY_API_KEY"),
+    api_secret=os.environ.get("CLOUDINARY_API_SECRET"),
+    secure=True
+)
+
 # Security
 security = HTTPBearer()
 
 # Upload directory
-UPLOAD_DIR = "./uploads"
+UPLOAD_DIR = "/app/frontend/public/uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 # Pydantic Models
@@ -431,6 +443,82 @@ async def upload_file(file: UploadFile = File(...), user = Depends(verify_token)
         shutil.copyfileobj(file.file, buffer)
     
     return {"url": f"uploads/{filename}", "filename": filename}
+
+# Cloudinary Signature Endpoint (for frontend direct upload)
+@app.get("/api/cloudinary/signature")
+async def get_cloudinary_signature(
+    resource_type: str = Query("image", enum=["image", "video"]),
+    folder: str = Query("limon-restaurant"),
+    user = Depends(verify_token)
+):
+    timestamp = int(time.time())
+    params = {
+        "timestamp": timestamp,
+        "folder": folder
+    }
+    
+    signature = cloudinary.utils.api_sign_request(
+        params,
+        os.environ.get("CLOUDINARY_API_SECRET")
+    )
+    
+    return {
+        "signature": signature,
+        "timestamp": timestamp,
+        "cloud_name": os.environ.get("CLOUDINARY_CLOUD_NAME"),
+        "api_key": os.environ.get("CLOUDINARY_API_KEY"),
+        "folder": folder,
+        "resource_type": resource_type
+    }
+
+# Cloudinary Direct Upload (Backend handles upload)
+@app.post("/api/cloudinary/upload")
+async def cloudinary_upload(
+    file: UploadFile = File(...),
+    resource_type: str = Form("image"),
+    folder: str = Form("limon-restaurant"),
+    user = Depends(verify_token)
+):
+    try:
+        # Read file content
+        contents = await file.read()
+        
+        # Upload to Cloudinary
+        if resource_type == "video":
+            result = cloudinary.uploader.upload(
+                contents,
+                resource_type="video",
+                folder=folder,
+                public_id=f"{uuid.uuid4()}"
+            )
+        else:
+            result = cloudinary.uploader.upload(
+                contents,
+                resource_type="image",
+                folder=folder,
+                public_id=f"{uuid.uuid4()}"
+            )
+        
+        return {
+            "url": result["secure_url"],
+            "public_id": result["public_id"],
+            "resource_type": resource_type
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+
+# Delete from Cloudinary
+@app.delete("/api/cloudinary/delete")
+async def cloudinary_delete(
+    public_id: str = Query(...),
+    resource_type: str = Query("image"),
+    user = Depends(verify_token)
+):
+    try:
+        result = cloudinary.uploader.destroy(public_id, resource_type=resource_type, invalidate=True)
+        return {"result": result}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Delete failed: {str(e)}")
 
 # Public data endpoint for frontend (combines all data for offline caching)
 @app.get("/api/public/data")
