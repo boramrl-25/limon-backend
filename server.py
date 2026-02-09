@@ -7,7 +7,7 @@ from typing import List, Optional
 from pymongo import MongoClient
 from bson import ObjectId
 import os
-from jose import jwt
+import jwt
 import hashlib
 import uuid
 from datetime import datetime, timedelta
@@ -50,7 +50,7 @@ cloudinary.config(
 security = HTTPBearer()
 
 # Upload directory
-UPLOAD_DIR = "./uploads"
+UPLOAD_DIR = "/app/frontend/public/uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 # Pydantic Models
@@ -485,11 +485,17 @@ async def cloudinary_upload(
         
         # Upload to Cloudinary
         if resource_type == "video":
-result = cloudinary.uploader.upload(
-            contents,
-            resource_type="video" if resource_type == "video" else "image",
-            folder=folder
-        )
+            result = cloudinary.uploader.upload(
+                contents,
+                resource_type="video",
+                folder=folder
+            )
+        else:
+            result = cloudinary.uploader.upload(
+                contents,
+                resource_type="image",
+                folder=folder
+            )
         
         return {
             "url": result["secure_url"],
