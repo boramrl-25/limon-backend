@@ -38,14 +38,6 @@ db = client[DB_NAME]
 JWT_SECRET = os.environ.get("JWT_SECRET", "limon-restaurant-secret-key-2024")
 JWT_ALGORITHM = "HS256"
 
-# Cloudinary Configuration
-cloudinary.config(
-    cloud_name=os.environ.get("CLOUDINARY_CLOUD_NAME"),
-    api_key=os.environ.get("CLOUDINARY_API_KEY"),
-    api_secret=os.environ.get("CLOUDINARY_API_SECRET"),
-    secure=True
-)
-
 # Security
 security = HTTPBearer()
 
@@ -480,6 +472,14 @@ async def cloudinary_upload(
     user = Depends(verify_token)
 ):
     try:
+        # Configure Cloudinary at runtime
+        cloudinary.config(
+            cloud_name=os.environ.get("CLOUDINARY_CLOUD_NAME"),
+            api_key=os.environ.get("CLOUDINARY_API_KEY"),
+            api_secret=os.environ.get("CLOUDINARY_API_SECRET"),
+            secure=True
+        )
+        
         # Read file content
         contents = await file.read()
         
