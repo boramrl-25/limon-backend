@@ -486,16 +486,11 @@ async def cloudinary_upload(
         # Upload to Cloudinary
         if resource_type == "video":
 result = cloudinary.uploader.upload(
-    contents,
-    resource_type="video",
-    folder=folder,
-    public_id=f"{uuid.uuid4()}"
-)        else:
-result = cloudinary.uploader.upload(
-    contents,
-    resource_type="video",
-    folder=folder
-)        
+            contents,
+            resource_type="video" if resource_type == "video" else "image",
+            folder=folder
+        )
+        
         return {
             "url": result["secure_url"],
             "public_id": result["public_id"],
