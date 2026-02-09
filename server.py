@@ -38,7 +38,7 @@ JWT_ALGORITHM = "HS256"
 security = HTTPBearer()
 
 # Upload directory
-UPLOAD_DIR = "/app/frontend/public/uploads"
+UPLOAD_DIR = "./uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 # Pydantic Models
