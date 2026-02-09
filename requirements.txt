@@ -5,3 +5,4 @@ python-jose[cryptography]==3.3.0
 python-multipart==0.0.6
 pydantic==1.10.13
 dnspython==2.4.2
+cloudinary==1.41.0
